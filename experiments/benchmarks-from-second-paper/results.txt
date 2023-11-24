@@ -1,0 +1,60 @@
+# Benchmarking second paper
+
+- `git clone https://github.com/pbelcak/UltraFastBERT`
+- `cp run.sh UltraFastBERT/benchmark_pytorch/`
+- `. run.sh`
+
+Output
+```
+🔸 Batch size 100
+naive FF (batch matmult)
+eager: 1.3852830000000003
+compile: 1.366022000000001
+(eval) compiled: 1.3960490000000003 ± 0.03737091447636828
+~~~~~~~~~~
+FFF (batch matmult)
+eager: 0.05451000000000006
+compile: 0.018572000000000255
+(eval) compiled: 0.01893820000000006 ± 0.0015569136006856079
+~~~~~~~~~~
+🔸 Batch size 10
+naive FF (batch matmult)
+eager: 0.141181
+compile: 0.1446900000000002
+(eval) compiled: 0.1389437 ± 0.0026585709714055
+~~~~~~~~~~
+FFF (batch matmult)
+eager: 0.005520000000000191
+compile: 0.001954999999999707
+(eval) compiled: 0.002634200000000009 ± 0.0015433838667031883
+~~~~~~~~~~
+🔸 Batch size 1
+naive FF (batch matmult)
+eager: 0.01369599999999993
+compile: 0.01478299999999999
+(eval) compiled: 0.014860099999999932 ± 0.0014923330358871411
+~~~~~~~~~~
+FFF (batch matmult)
+eager: 0.0005589999999999762
+compile: 0.0005690000000000417
+(eval) compiled: 0.0003634999999999167 ± 7.71248987033366e-05
+~~~~~~~~~~
+```
+
+# Analysic
+
+Speedups for batchsize 100 10 1:
+
+```python
+In [1]: 1.3471607 / 0.019425799999999917, 0.14026139999999993 / 0
+   ...: .0023557000000000716, 0.014105299999999899 / 0.0003394000
+   ...: 0000001194
+Out[1]: (69.34904611393127, 59.54128284586138, 41.5595167943412)
+```
+
+Note:
+```bash
+python main.py --help
+```
+for the list of all possible options.
+
