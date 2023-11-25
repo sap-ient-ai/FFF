@@ -1,8 +1,15 @@
 import torch as torch
 import torch.nn as nn
 from typing import Optional
-from math import ceil, log2, sqrt
+from math import floor, log2, sqrt
+import torch.nn.functional as F
 
+# The idea behind hyperspherical-shell initialization is that basis vectors
+#   should be of unit length.
+# Slightly less sure whether to init the OUTPUT basis vectors to _also_ be
+#   of unit length, but they'll learn, so probably ok.
+# Both strats seem to learn the same
+INIT_STRAT = 'hyperspherical-shell'  # 'spherical' or 'gaussian'
 
 class FFF(nn.Module):
     def __init__(self, nIn: int, nOut: int, depth: Optional[int] = None):
@@ -11,64 +18,52 @@ class FFF(nn.Module):
         self.output_width = nOut
 
         # depth is the number of decision boundaries
-        self.depth = int(ceil(log2(nIn))) if depth is None else depth
-        self.n_nodes = 2 ** (self.depth + 1) - 1
+        self.depth = depth or int(floor(log2(nIn)))
+        self.n_nodes = 2 ** self.depth - 1
 
-        self._initiate_weights()
+        if INIT_STRAT == 'gaussian':
+            init_factor_I1 = 1 / sqrt(self.input_width)
+            init_factor_I2 = 1 / sqrt(self.depth + 1)
+            def create_weight_parameter(n_nodes, width, init_factor):
+                return nn.Parameter(torch.empty(n_nodes, width).uniform_(-init_factor, init_factor))
+            self.w1s = create_weight_parameter(self.n_nodes, nIn, init_factor_I1)
+            self.w2s = create_weight_parameter(self.n_nodes, nOut, init_factor_I2)
 
-    def _initiate_weights(self):
-        init_factor_I1 = 1 / sqrt(self.input_width)
-        init_factor_I2 = 1 / sqrt(self.depth + 1)
-
-        # shape: (n_nodes, input_width)
-        # weights for basis nodes projection
-        self.w1s = nn.Parameter(
-            torch.empty(self.n_nodes, self.input_width).uniform_(
-                -init_factor_I1, init_factor_I1
-            ),
-            requires_grad=True,
-        )
-
-        # shape: (n_nodes, output_width)
-        # weights for transforming basis nodes to output space
-        self.w2s = nn.Parameter(
-            torch.empty(self.n_nodes, self.output_width).uniform_(
-                -init_factor_I2, init_factor_I2
-            ),
-            requires_grad=True,
-        )
+        elif INIT_STRAT == 'hyperspherical-shell':
+            # each node has a w1 in INPUT space and a w2 in OUTPUT space  
+            # Initialize vectors on INPUT/OUTPUT space unit hypersphere
+            def create_random_unit_vectors(n_nodes, width):
+                weights = torch.randn(n_nodes, width)  # Initialize weights randomly
+                weights = F.normalize(weights, p=2, dim=-1)  # L2-Normalize along the last dimension
+                return nn.Parameter(weights)
+            self.w1s = create_random_unit_vectors(self.n_nodes, self.input_width)
+            self.w2s = create_random_unit_vectors(self.n_nodes, self.output_width)
 
     def forward(self, x: torch.Tensor):
         batch_size = x.shape[0]
+        current_node = torch.zeros(batch_size, dtype=torch.long)
+        y = torch.zeros((batch_size, self.output_width), dtype=torch.float)
 
-        # concurrent for batch size (bs, )
-        current_node = torch.zeros((batch_size,), dtype=torch.long)
+        # walk the tree, dynamically constructing a basis
+        #   (and projection coeffs of x ONTO that basis)
+        # Each coeff will determine whether we branch left or right
+        #   as we move up the tree
+        # We assemble our output y on the fly
+        for i in range(self.depth):
+            # 
+            # lambda_ = x DOT currNode.w1 (project x onto the current node's INPUT basis vector)
+            lambda_ = torch.einsum("b i, b i -> b", x, self.w1s[current_node])
 
-        all_nodes = torch.zeros(batch_size, self.depth + 1, dtype=torch.long)
-        all_scores = torch.empty((batch_size, self.depth + 1), dtype=torch.float)
+            # y += lambda_ * currNode.w2
+            y += torch.einsum("b, bj -> bj", lambda_, self.w2s[current_node])
 
-        # find the basis scalar for each node
-        for i in range(self.depth + 1):
-            # compute plane scores
-            # dot product between input (x) and weights of the current node (w1s)
-            # result is scalar of shape (bs)
-            plane_score = torch.einsum("b i, b i -> b", x, self.w1s[current_node])
-            all_nodes[:, i] = current_node
+            # we'll branch right if x is "sunny-side" of the 
+            # hyperplane defined by node.x (else left)
+            plane_choice = (lambda_ > 0).long()
 
-            # scores are used for gradient propagation and learning decision boundaries
-            all_scores[:, i] = plane_score
+            # figure out index of node in next layer to visit
+            current_node = (current_node * 2) + 1 + plane_choice
 
-            # compute next node (left or right)
-            plane_choice = (plane_score > 0).long()
-            current_node = (current_node * 2) + plane_choice + 1
-
-        # reshape all_nodes to (bs, n_nodes, output_width)
-        selected_w2s = self.w2s[all_nodes.flatten()].view(
-            batch_size, self.depth + 1, self.output_width
-        )
-
-        # project scores to output space (bs, n_nodes, output_width), (bs, output_width) -> (bs, output_width)
-        y = torch.einsum("b i j , b i -> b j", selected_w2s, all_scores)
         return y
 
     def __repr__(self):
