@@ -1,0 +1,12 @@
+ipykernel
+
+lovely-tensors
+
+numpy
+torch
+torchvision
+tqdm
+
+jax
+jaxlib
+flax
