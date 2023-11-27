@@ -3,7 +3,6 @@ import torch.nn as nn
 from typing import Optional
 from math import floor, log2, sqrt
 import torch.nn.functional as F
-from typing import Tuple
 
 # The idea behind hyperspherical-shell initialization is that basis vectors
 #   should be of unit length.
