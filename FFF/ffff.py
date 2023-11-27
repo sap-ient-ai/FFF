@@ -156,8 +156,8 @@ class F4(nn.Module):
 
         # walk multiple trees at once, dynamically constructing a basis
         # each coeff will determine whether we branch left or right inside one tree
-        # but also what is the chance to stay on that tree for the next depth iteration.
-        # assemble our output `y` in a slow `for` loop
+        # assemble our output `y` from linear combination of basis vectors from all trees
+        # currently runs in a slow python `for` loop
         # below `b` - batchsize, `k` - tree in the forest index, `i` - features dim
         for i in range(self.depth):
             lambda_ = torch.einsum(
