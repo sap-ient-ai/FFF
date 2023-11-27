@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from FFF.ffff import F4
+from FFF.experiments.ffff import F4
 
 
 class F4_mnist(nn.Module):
