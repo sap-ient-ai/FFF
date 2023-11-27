@@ -107,7 +107,7 @@ class F4(nn.Module):
         if not depth:
             self.depth = int(floor(log2(in_features)))
             if use_depth_fair:
-                self.depth = self.depth - self.num_trees
+                self.depth = self.depth - int(floor(log2(self.num_trees)))
         else:
             self.depth = depth
 
@@ -170,6 +170,7 @@ class F4(nn.Module):
             if self.normalize:
                 lambda_ = self.normalize(lambda_)
 
+            # y += \sum_k lambda_k * currNode_k.value
             y += torch.einsum(
                 "bk, bkj -> bj", lambda_, self.values[current_nodes, tree_selector]
             )
