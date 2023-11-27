@@ -81,7 +81,7 @@ class F4(nn.Module):
             in_features (int): number of features in the input, similar to `nn.Linear` argument.
             out_features (int): number of features in the output.
             num_trees (int): number of trees in that will will be run through in parallel.
-                 Note that the final Basis constructed from the `output` vectors stored in each tree node
+                 Note that the final Basis constructed from the `output` vectors stored in each node
                  will (almost always) contain a mixed selection of vectors from different trees.
             depth (Optional[int], None): fixed depth of a single Tree.
                 Note: since the number of leaves grows as $2^depth$
@@ -90,9 +90,10 @@ class F4(nn.Module):
             normalize_func (Optional[callable], None): function that performs normalization between
                 vector associated $\lambda^t_k$ from each tree $T_k$ on each depth $t$
                 Defaults to None (no normalization), F.norm
-            init_strategy (Optional[str], None): one of 'hyperspherical-shell', 'gaussian', 'uniform', 'xavier'
+            init_strategy (Optional[str], None): one of 'hyperspherical-shell', 'gaussian'
             use_depth_fair (bool): used only with `depth == None`, mostly for benchmarking purposes,
-                when `True` will substract `num_trees` from `depth` to equalize number of nodes with FFF
+                when `True` will substract `num_trees` from `depth`
+                to equalize number of nodes with FFF
 
         Returns:
             torch.Tensor: _description_
