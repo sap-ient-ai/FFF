@@ -22,8 +22,10 @@ class FFF(nn.Module):
         self.n_nodes = 2 ** self.depth - 1
 
         if INIT_STRAT == 'gaussian':
+            # (π) why??
             init_factor_I1 = 1 / sqrt(self.input_width)
             init_factor_I2 = 1 / sqrt(self.depth + 1)
+
             def create_weight_parameter(n_nodes, width, init_factor):
                 return nn.Parameter(torch.empty(n_nodes, width).uniform_(-init_factor, init_factor))
             self.w1s = create_weight_parameter(self.n_nodes, nIn, init_factor_I1)
