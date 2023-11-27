@@ -75,7 +75,7 @@ class F4(nn.Module):
         use_depth_fair: bool = False,
     ) -> torch.Tensor:
         """Note: softmax normalization is not recommended, because it will always give positive sign
-        of lambdas and thus our branch selection to the right node.
+        of lambdas and thus our branch selection will always go to the right node.
 
         Args:
             in_features (int): number of features in the input, similar to `nn.Linear` argument.
@@ -84,7 +84,8 @@ class F4(nn.Module):
                  Note that the final Basis constructed from the `output` vectors stored in each tree node
                  will (almost always) contain a mixed selection of vectors from different trees.
             depth (Optional[int], None): fixed depth of a single Tree.
-                Note that since the number leaves grows as $2^depth$ in may be memory-costly to choose `depth` > 14.
+                Note: since the number of leaves grows as $2^depth$
+                it may be memory-costly to choose `depth` > 14.
                 Defaults to None, which auto-selects `depth` as `log_2(in_features)`
             normalize_func (Optional[callable], None): function that performs normalization between
                 vector associated $\lambda^t_k$ from each tree $T_k$ on each depth $t$
