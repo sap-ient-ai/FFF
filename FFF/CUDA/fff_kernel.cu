@@ -1,105 +1,85 @@
-#include <torch/extension.h>
-
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <torch/extension.h>
 
-#include <vector>
+#include "ATen/ATen.h"
+typedef at::BFloat16 bf16;
 
-namespace {
-template <typename scalar_t>
-__device__ __forceinline__ scalar_t relu(scalar_t z) {
-  return z * (z > 0);
-}
+template <typename F>
+__global__ void kernel_forward(const int B, const int w1s_sz, const int w2s_sz,
+                               F *__restrict__ const _y,
+                               F *__restrict__ const _x,
+                               F *__restrict__ const _in_projection,
+                               F *__restrict__ const _out_projection,
+                               const unsigned int depth) {
+  // compute which row and column of inputs we're dealing with
+  const int row_index = blockIdx.y * blockDim.y + threadIdx.y;
+  const int col_index = blockIdx.x * blockDim.x + threadIdx.x;
 
-template <typename scalar_t>
-__global__ void fff_cuda_forward_kernel(
-    torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> output,
-    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> x,
-    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> in_projection,
-    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> out_projection,
-    const unsigned int depth,
-    const unsigned int in_width,
-    const unsigned int out_width
-  ) {
-  // compute which row of inputs we're dealing with
-  const int row_index = blockIdx.x * blockDim.x + threadIdx.x;
-  const int width = x.size(1);
-
-  // zero the output
-  for (int i = 0; i < in_width; ++i) {
-    output[row_index][i] = 0;
-  }
-
-  if (row_index < x.size(0)) {
+  // check if the row and column indices are valid
+  if (row_index < B && col_index < w2s_sz) {
+    // initialize the current node to zero
     int current_node = 0;
-    for (int current_depth = 0; current_depth <= depth; ++current_depth) {
-        double acc = 0;
+    // initialize the output vector to zero
+    // F *y = _y + row_index * w2s_sz;
+    F *y = _y + row_index * w2s_sz + col_index;
+    F *x = _x + row_index * w1s_sz;
 
-        #pragma unroll
-        for (int i = 0; i < in_width;++i) {
-            acc += x[row_index][i] * in_projection[current_node][i];
-        }
+    // walk the tree, dynamically constructing a basis
+    // and projection coeffs of x onto that basis
+    // each coeff will determine whether we branch left or right
+    // as we move up the tree
+    // we assemble our output y on the fly
+    for (int i = 0; i < depth; i++) {
+      // lambda_ = x DOT currNode.w1 (project x onto the current node's INPUT
+      // basis vector)
+      F *w1s = _in_projection + current_node * w1s_sz;
+      F *w2s = _out_projection + current_node * w2s_sz;
 
-        // compute the activation
-        double activation = relu(acc);
+      F lambda_ = 0;
+      for (int j = 0; j < w1s_sz; j++) {
+        lambda_ += x[j] * w1s[j];
+      }
 
-        // compute the output contribution due to the current node
-        #pragma unroll
-        for (int i = 0; i < out_width; ++i) {
-            output[row_index][i] += activation * out_projection[current_node][i];
-        }
+      *y += lambda_ * w2s[col_index];
 
-        // decide where to move to (left or right child)
-        current_node = (current_node<<1) + 1 + (acc > 0);
+      // figure out index of node in next layer to visit
+      current_node = (current_node * 2) + 1 + (lambda_ > 0);
     }
   }
+  __syncthreads();
 }
-} // namespace
 
-torch::Tensor fff_cuda_forward(
-	torch::Tensor x,
-	torch::Tensor in_projection,
-	torch::Tensor out_projection,
-	const unsigned int depth
-) {
+void fff_cuda_forward(int B, int w1s_sz, int w2s_sz, bf16 *y, bf16 *x,
+                      bf16 *in_projection, bf16 *out_projection,
+                      const unsigned int depth) {
+  // NOTE: we have 32 threads per block in each dimension
+  const int threads_x = 32;
+  const int threads_y = 32;
+  // compute the number of blocks in each dimension
+  const int blocks_x =
+      (w2s_sz + threads_x - 1) / threads_x;              // round up the blocks
+  const int blocks_y = (B + threads_y - 1) / threads_y;  // round up the blocks
 
-  auto output = torch::empty(
-    {x.size(0), out_projection.size(1)},
-    torch::TensorOptions()
-      .dtype(torch::kFloat32)
-      .device(x.device())
-  );
+  // use a dim3 struct to specify the grid and block dimensions
+  dim3 grid(blocks_x, blocks_y);
+  dim3 block(threads_x, threads_y);
 
-  const int batch_size = x.size(0);
-  const int threads = 32;
-  const int blocks = (batch_size + threads - 1) / threads;
-
-  const int in_width = in_projection.size(1);
-  const int out_width = out_projection.size(1);
-
-  AT_DISPATCH_FLOATING_TYPES(in_projection.type(), "fff_forward_cuda", ([&] {
-    fff_cuda_forward_kernel<scalar_t><<<blocks, threads>>>(
-        output.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        x.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        in_projection.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        out_projection.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        depth,
-        in_width,
-        out_width
-    );
-  }));
+  kernel_forward<<<grid, block>>>(B, w1s_sz, w2s_sz, y, x, in_projection,
+                                  out_projection, depth);
 
   cudaError_t err;
   err = cudaGetLastError();
   if (cudaSuccess != err) {
-      fprintf(stderr, "CUDA kernel failed : %s\n", cudaGetErrorString(err));
+    fprintf(stderr, "CUDA kernel failed : %s\n", cudaGetErrorString(err));
   }
 
   cudaError_t cudaStatus;
   cudaStatus = cudaDeviceSynchronize();
   if (cudaStatus != cudaSuccess) {
-      fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+    fprintf(stderr,
+            "cudaDeviceSynchronize returned error code %d after launching "
+            "addKernel!\n",
+            cudaStatus);
   }
-
-  return output;
 }

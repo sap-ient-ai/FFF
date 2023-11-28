@@ -22,7 +22,7 @@ fff_cuda_ = load(
     [dir_path + "/CUDA/fff_cuda.cpp", dir_path + "/CUDA/fff_kernel.cu"],
     verbose=True,
     with_cuda=True,
-    extra_cuda_cflags=["--std=c++20", "--expt-relaxed-constexpr", "-O3"],
+    extra_cuda_cflags=["--std=c++20", "--expt-relaxed-constexpr", "-O3", "-res-usage", "--use_fast_math", "-Xptxas -O3", "--extra-device-vectorization"],
     extra_cflags=["--std=c++20", "-O3"],
 )
 
@@ -45,7 +45,7 @@ class FFFLayer(nn.Module):
 
         def create_random_unit_vectors(n_nodes, width):
             # Initialize weights randomly
-            weights = torch.randn(n_nodes, width)
+            weights = torch.randn(n_nodes, width, dtype=torch.bfloat16)
             # L2-Normalize along the last dimension
             weights = F.normalize(weights, p=2, dim=-1)
             return nn.Parameter(weights)
@@ -54,7 +54,14 @@ class FFFLayer(nn.Module):
         self.w2s = create_random_unit_vectors(self.n_nodes, self.output_width)
 
     def forward(self, input):
+        B = input.shape[0]
+        IN = self.w1s.shape[1]
+        OUT = self.w2s.shape[1]
+
         return FFFFunction.apply(
+            B,
+            IN,
+            OUT,
             input,
             self.w1s,
             self.w2s,
@@ -64,13 +71,22 @@ class FFFLayer(nn.Module):
 
 class FFFFunction(Function):
     @staticmethod
-    def forward(ctx, input, in_projection, out_projection, depth):
+    def forward(ctx, B, IN, OUT, input, in_projection, out_projection, depth):
+        assert input.dtype == torch.bfloat16
+        assert in_projection.dtype == torch.bfloat16
+        assert out_projection.dtype == torch.bfloat16
+
+        assert input.is_contiguous()
+        assert in_projection.is_contiguous()
+        assert out_projection.is_contiguous()
+
         # oldx has shape (..., width)
         # in_weight has shape (n_nodes, width)
         # out_weight has shape (n_nodes, width)
-        result = fff_cuda_.forward(input, in_projection, out_projection, depth)
+        y = torch.zeros((B, OUT), dtype=torch.bfloat16, device=input.device)
+        fff_cuda_.forward(B, IN, OUT, y, input, in_projection, out_projection, depth)
         # ctx.save_for_backward(input, in_projection, out_projection, depth)
-        return result
+        return y
 
     @staticmethod
     def backward(ctx, grad_of_output):
