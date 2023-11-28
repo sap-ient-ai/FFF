@@ -1,17 +1,14 @@
+#include <string.h>
 #include <torch/extension.h>
 
-#include <vector>
 #include <iostream>
+#include <vector>
 
 // CUDA forward declarations
 
-torch::Tensor fff_cuda_forward(torch::Tensor x, torch::Tensor in_weight,
-                               torch::Tensor in_bias, torch::Tensor out_weight,
-                               const unsigned int width,
-                               const unsigned int depth,
-                               const unsigned int parallel_size,
-                               const unsigned int n_nodes);
-
+torch::Tensor fff_cuda_forward(torch::Tensor x, torch::Tensor in_projection,
+                               torch::Tensor out_projection,
+                               const unsigned int depth);
 
 // NOTE: AT_ASSERT has become AT_CHECK on master after 0.4.
 #define CHECK_CUDA(x) \
@@ -24,18 +21,13 @@ torch::Tensor fff_cuda_forward(torch::Tensor x, torch::Tensor in_weight,
   CHECK_CUDA(x);       \
   CHECK_CONTIGUOUS(x)
 
-torch::Tensor fff_forward(torch::Tensor x, torch::Tensor in_weight,
-                          torch::Tensor in_bias, torch::Tensor out_weight,
-                          unsigned int width, unsigned int depth,
-                          unsigned int parallel_size, unsigned int n_nodes) {
+torch::Tensor fff_forward(torch::Tensor x, torch::Tensor in_projection,
+                          torch::Tensor out_projection, unsigned int depth) {
   CHECK_INPUT(x);
-  CHECK_INPUT(in_weight);
-  CHECK_INPUT(in_bias);
-  CHECK_INPUT(out_weight);
-  CHECK_IDENTITY(parallel_size);
+  CHECK_INPUT(in_projection);
+  CHECK_INPUT(out_projection);
 
-  return fff_cuda_forward(x, in_weight, in_bias, out_weight, width, depth,
-                          parallel_size, n_nodes);
+  return fff_cuda_forward(x, in_projection, out_projection, depth);
 }
 
 std::vector<torch::Tensor> fff_backward(torch::Tensor inputs) {

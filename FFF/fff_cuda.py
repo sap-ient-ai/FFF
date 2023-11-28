@@ -27,67 +27,49 @@ fff_cuda_ = load(
 )
 
 
+from typing import Optional
+from math import floor, log2, sqrt
+import torch.nn.functional as F
+
+
 class FFFLayer(nn.Module):
-    def __init__(
-        self, input_width, output_width, depth, parallel_size, activation=nn.GELU
-    ):
+    def __init__(self, nIn: int, nOut: int, depth: Optional[int] = None):
         super().__init__()
 
-        self.input_width = input_width
-        self.output_width = output_width
-        self.depth = depth
-        self.parallel_size = parallel_size
-        self.n_nodes = 2 ** (self.depth + 1) - 1
+        self.input_width = nIn
+        self.output_width = nOut
 
-        self.linear_in_weight = nn.Parameter(
-            torch.empty((self.parallel_size * self.n_nodes, self.input_width)),
-            requires_grad=True,
-        )
-        self.linear_in_bias = nn.Parameter(
-            torch.empty((self.parallel_size * self.n_nodes)), requires_grad=True
-        )
-        self.linear_out_weight = nn.Parameter(
-            torch.empty((self.parallel_size * self.n_nodes, self.output_width)),
-            requires_grad=True,
-        )
+        # depth is the number of decision boundaries
+        self.depth = depth or int(floor(log2(nIn)))
+        self.n_nodes = 2**self.depth - 1
 
-        self.reset_parameters()
+        def create_random_unit_vectors(n_nodes, width):
+            # Initialize weights randomly
+            weights = torch.randn(n_nodes, width)
+            # L2-Normalize along the last dimension
+            weights = F.normalize(weights, p=2, dim=-1)
+            return nn.Parameter(weights)
 
-    def reset_parameters(self):
-        init_k = math.sqrt(1.0 / self.input_width)
-        init_k2 = math.sqrt(1.0 / ((self.depth + 1) * self.parallel_size))
-        self.linear_in_weight.data.uniform_(-init_k, +init_k)
-        self.linear_in_bias.data.uniform_(-init_k, +init_k)
-        self.linear_out_weight.data.uniform_(-init_k2, +init_k2)
+        self.w1s = create_random_unit_vectors(self.n_nodes, self.input_width)
+        self.w2s = create_random_unit_vectors(self.n_nodes, self.output_width)
 
     def forward(self, input):
         return FFFFunction.apply(
             input,
-            self.linear_in_weight,
-            self.linear_in_bias,
-            self.linear_out_weight,
-            self.input_width,
+            self.w1s,
+            self.w2s,
             self.depth,
-            self.parallel_size,
-            self.n_nodes,
         )
 
 
 class FFFFunction(Function):
     @staticmethod
-    def forward(
-        ctx, oldx, in_weight, in_bias, out_weight, width, depth, parallel_size, n_nodes
-    ):
+    def forward(ctx, input, in_projection, out_projection, depth):
         # oldx has shape (..., width)
-        x = oldx.reshape(-1, width)
-        # x has shape (batch_size, width)
-
-        new_logits = fff_cuda_.forward(
-            x, in_weight, in_bias, out_weight, width, depth, parallel_size, n_nodes
-        )
-
-        ret = new_logits.reshape_as(oldx)
-        return ret
+        # in_weight has shape (n_nodes, width)
+        # out_weight has shape (n_nodes, width)
+        result = fff_cuda_.forward(input, in_projection, out_projection, depth)
+        return result
 
     @staticmethod
     def backward(ctx, grad_of_output):

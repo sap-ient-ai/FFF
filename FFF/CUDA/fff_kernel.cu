@@ -7,24 +7,21 @@
 
 namespace {
 template <typename scalar_t>
-__device__ __forceinline__ scalar_t gelu(scalar_t z) {
-  return z * normcdff(z);
+__device__ __forceinline__ scalar_t relu(scalar_t z) {
+  return z * (z > 0);
 }
 
 template <typename scalar_t>
 __global__ void fff_cuda_forward_kernel(
     torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> output,
     const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> x,
-    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> in_weight,
-    const torch::PackedTensorAccessor<scalar_t,1,torch::RestrictPtrTraits,size_t> in_bias,
-    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> out_weight,
-    const unsigned int width,
-    const unsigned int depth,
-    const unsigned int n_nodes
+    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> in_projection,
+    const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> out_projection,
+    const unsigned int depth
   ) {
   // compute which row of inputs we're dealing with
   const int row_index = blockIdx.x * blockDim.x + threadIdx.x;
-  (void)n_nodes; // unused
+  const int width = x.size(1);
 
   // zero the output
   for (int i = 0; i < width; ++i) {
@@ -34,22 +31,21 @@ __global__ void fff_cuda_forward_kernel(
   if (row_index < x.size(0)) {
     int current_node = 0;
     for (int current_depth = 0; current_depth <= depth; ++current_depth) {
-        scalar_t acc = 0;
+        double acc = 0;
         for (int i = 0; i < width;++i) {
-            acc += x[row_index][i] * in_weight[current_node][i];
+            acc += x[row_index][i] * in_projection[current_node][i];
         }
-        acc += in_bias[current_node];
 
         // compute the activation
-        scalar_t activation = gelu(acc);
+        double activation = relu(acc);
 
         // compute the output contribution due to the current node
         for (int i = 0; i < width; ++i) {
-            output[row_index][i] += activation * out_weight[current_node][i];
+            output[row_index][i] += activation * out_projection[current_node][i];
         }
 
-        // decide where to move to
-        current_node = (current_node<<1) + 1 + (acc > 0 ? 1 : 0);
+        // decide where to move to (left or right child)
+        current_node = (current_node<<1) + 1 + (acc > 0);
     }
   }
 }
@@ -57,17 +53,13 @@ __global__ void fff_cuda_forward_kernel(
 
 torch::Tensor fff_cuda_forward(
 	torch::Tensor x,
-	torch::Tensor in_weight,
-	torch::Tensor in_bias,
-	torch::Tensor out_weight,
-	const unsigned int width,
-	const unsigned int depth,
-	const unsigned int parallel_size,
-	const unsigned int n_nodes
+	torch::Tensor in_projection,
+	torch::Tensor out_projection,
+	const unsigned int depth
 ) {
 
   auto output = torch::empty(
-    {x.size(0), width},
+    {x.size(0), out_projection.size(1)},
     torch::TensorOptions()
       .dtype(torch::kFloat32)
       .device(x.device())
@@ -78,16 +70,13 @@ torch::Tensor fff_cuda_forward(
   const int threads = 1024;
   const int blocks = (batch_size + threads - 1) / threads;
 
-  AT_DISPATCH_FLOATING_TYPES(in_weight.type(), "fff_forward_cuda", ([&] {
+  AT_DISPATCH_FLOATING_TYPES(in_projection.type(), "fff_forward_cuda", ([&] {
     fff_cuda_forward_kernel<scalar_t><<<blocks, threads>>>(
         output.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
         x.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        in_weight.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        in_bias.packed_accessor<scalar_t,1,torch::RestrictPtrTraits,size_t>(),
-        out_weight.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        width,
-        depth,
-        n_nodes
+        in_projection.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
+        out_projection.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
+        depth
     );
   }));
 

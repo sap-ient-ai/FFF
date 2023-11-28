@@ -32,7 +32,7 @@ class FFF(nn.Module):
             self.w2s = create_weight_parameter(self.n_nodes, nOut, init_factor_I2)
 
         elif INIT_STRAT == 'hyperspherical-shell':
-            # each node has a w1 in INPUT space and a w2 in OUTPUT space  
+            # each node has a w1 in INPUT space and a w2 in OUTPUT space
             # Initialize vectors on INPUT/OUTPUT space unit hypersphere
             def create_random_unit_vectors(n_nodes, width):
                 weights = torch.randn(n_nodes, width)  # Initialize weights randomly
@@ -52,14 +52,13 @@ class FFF(nn.Module):
         #   as we move up the tree
         # We assemble our output y on the fly
         for i in range(self.depth):
-            # 
             # lambda_ = x DOT currNode.w1 (project x onto the current node's INPUT basis vector)
             lambda_ = torch.einsum("b i, b i -> b", x, self.w1s[current_node])
 
             # y += lambda_ * currNode.w2
             y += torch.einsum("b, bj -> bj", lambda_, self.w2s[current_node])
 
-            # we'll branch right if x is "sunny-side" of the 
+            # we'll branch right if x is "sunny-side" of the
             # hyperplane defined by node.x (else left)
             plane_choice = (lambda_ > 0).long()
 
