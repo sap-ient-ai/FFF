@@ -17,14 +17,16 @@ __global__ void fff_cuda_forward_kernel(
     const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> x,
     const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> in_projection,
     const torch::PackedTensorAccessor<scalar_t,2,torch::RestrictPtrTraits,size_t> out_projection,
-    const unsigned int depth
+    const unsigned int depth,
+    const unsigned int in_width,
+    const unsigned int out_width
   ) {
   // compute which row of inputs we're dealing with
   const int row_index = blockIdx.x * blockDim.x + threadIdx.x;
   const int width = x.size(1);
 
   // zero the output
-  for (int i = 0; i < width; ++i) {
+  for (int i = 0; i < in_width; ++i) {
     output[row_index][i] = 0;
   }
 
@@ -32,7 +34,9 @@ __global__ void fff_cuda_forward_kernel(
     int current_node = 0;
     for (int current_depth = 0; current_depth <= depth; ++current_depth) {
         double acc = 0;
-        for (int i = 0; i < width;++i) {
+
+        #pragma unroll
+        for (int i = 0; i < in_width;++i) {
             acc += x[row_index][i] * in_projection[current_node][i];
         }
 
@@ -40,7 +44,8 @@ __global__ void fff_cuda_forward_kernel(
         double activation = relu(acc);
 
         // compute the output contribution due to the current node
-        for (int i = 0; i < width; ++i) {
+        #pragma unroll
+        for (int i = 0; i < out_width; ++i) {
             output[row_index][i] += activation * out_projection[current_node][i];
         }
 
@@ -66,9 +71,11 @@ torch::Tensor fff_cuda_forward(
   );
 
   const int batch_size = x.size(0);
-
-  const int threads = 1024;
+  const int threads = 32;
   const int blocks = (batch_size + threads - 1) / threads;
+
+  const int in_width = in_projection.size(1);
+  const int out_width = out_projection.size(1);
 
   AT_DISPATCH_FLOATING_TYPES(in_projection.type(), "fff_forward_cuda", ([&] {
     fff_cuda_forward_kernel<scalar_t><<<blocks, threads>>>(
@@ -76,7 +83,9 @@ torch::Tensor fff_cuda_forward(
         x.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
         in_projection.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
         out_projection.packed_accessor<scalar_t,2,torch::RestrictPtrTraits,size_t>(),
-        depth
+        depth,
+        in_width,
+        out_width
     );
   }));
 

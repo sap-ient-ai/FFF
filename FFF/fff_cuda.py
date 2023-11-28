@@ -22,8 +22,8 @@ fff_cuda_ = load(
     [dir_path + "/CUDA/fff_cuda.cpp", dir_path + "/CUDA/fff_kernel.cu"],
     verbose=True,
     with_cuda=True,
-    extra_cuda_cflags=["--std=c++20", "--expt-relaxed-constexpr"],
-    extra_cflags=["--std=c++20"],
+    extra_cuda_cflags=["--std=c++20", "--expt-relaxed-constexpr", "-O3"],
+    extra_cflags=["--std=c++20", "-O3"],
 )
 
 
@@ -69,6 +69,7 @@ class FFFFunction(Function):
         # in_weight has shape (n_nodes, width)
         # out_weight has shape (n_nodes, width)
         result = fff_cuda_.forward(input, in_projection, out_projection, depth)
+        # ctx.save_for_backward(input, in_projection, out_projection, depth)
         return result
 
     @staticmethod
