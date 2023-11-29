@@ -43,8 +43,8 @@ class FFF(nn.Module):
 
     def forward(self, x: torch.Tensor):
         batch_size = x.shape[0]
-        current_node = torch.zeros(batch_size, dtype=torch.long)
-        y = torch.zeros((batch_size, self.output_width), dtype=torch.float)
+        current_node = torch.zeros(batch_size, dtype=torch.long, device=x.device)
+        y = torch.zeros((batch_size, self.output_width), dtype=torch.float, device=x.device)
 
         # walk the tree, dynamically constructing a basis
         #   (and projection coeffs of x ONTO that basis)
