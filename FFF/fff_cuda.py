@@ -31,6 +31,10 @@ from typing import Optional
 from math import floor, log2, sqrt
 import torch.nn.functional as F
 
+#TYPE = torch.bfloat16
+TYPE = torch.float
+
+
 
 class FFFLayer(nn.Module):
     def __init__(self, nIn: int, nOut: int, depth: Optional[int] = None):
@@ -45,7 +49,7 @@ class FFFLayer(nn.Module):
 
         def create_random_unit_vectors(n_nodes, width):
             # Initialize weights randomly
-            weights = torch.randn(n_nodes, width, dtype=torch.bfloat16)
+            weights = torch.randn(n_nodes, width, dtype=TYPE)
             # L2-Normalize along the last dimension
             weights = F.normalize(weights, p=2, dim=-1)
             return nn.Parameter(weights)
@@ -57,7 +61,6 @@ class FFFLayer(nn.Module):
         B = input.shape[0]
         IN = self.w1s.shape[1]
         OUT = self.w2s.shape[1]
-
         return FFFFunction.apply(
             B,
             IN,
@@ -72,9 +75,10 @@ class FFFLayer(nn.Module):
 class FFFFunction(Function):
     @staticmethod
     def forward(ctx, B, IN, OUT, input, in_projection, out_projection, depth):
-        assert input.dtype == torch.bfloat16
-        assert in_projection.dtype == torch.bfloat16
-        assert out_projection.dtype == torch.bfloat16
+
+        assert input.dtype == TYPE
+        assert in_projection.dtype == TYPE
+        assert out_projection.dtype == TYPE
 
         assert input.is_contiguous()
         assert in_projection.is_contiguous()
@@ -83,7 +87,8 @@ class FFFFunction(Function):
         # oldx has shape (..., width)
         # in_weight has shape (n_nodes, width)
         # out_weight has shape (n_nodes, width)
-        y = torch.zeros((B, OUT), dtype=torch.bfloat16, device=input.device)
+        input = input.view(-1, IN)
+        y = torch.zeros((B, OUT), dtype=TYPE, device=input.device)
         fff_cuda_.forward(B, IN, OUT, y, input, in_projection, out_projection, depth)
         # ctx.save_for_backward(input, in_projection, out_projection, depth)
         return y
