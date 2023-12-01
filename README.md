@@ -15,6 +15,15 @@ NOTE: We're not affiliated with the authors of the FFF papers, but we'd be thril
 
 
 # Repo contents
+
+## Branches
+- main
+    This!
+
+- CUDA
+    Bojan is working on a CUDA impl
+
+## Folders & Files
 ```
 doc/
     Let's try to keep organized
@@ -57,19 +66,33 @@ experiments/
     If we get something juicy we'll move it into the appropriate place in the repo.
 
     fff_mnist.ipynb
-        Early experiments. TODO: tidy this up
+        Early experiment to compare FFF against FF. Using obsolete FFF code.
     
     hf_bert.ipynb
         Authors of second paper published a FFF-BERT model on HF.
         We evaluate its performance compared against a standard BERT model.
         It isn't any faster on a M2 mac. Actually it's slower.
     
-    🔹pi_slice.ipynb
+    pi_slice.ipynb
         Some experiments riffing on the "basis transform theme"
             - what if we throw out the concept of a 'tree' and simply have latent-nodes
             - what if we compare our input against latent-nodes and pick top-k winners?
             - what if we ReLU on our lambdas?
             - what if we introduce an orthogonality costfunc?
+            Some of these variants give impressive performance on MNIST
+                TODO: try on harder dataset 
+    
+    2023-11-29--fff-topk-lora.ipynb
+        Cleaning up the previous experiments (so can ignore prev)
+    
+
+    2023-11-29--fff_recursive.ipynb
+        Implementing FFF on CUDA, we may wish a more efficient impl.
+        Naive FFF involves many random lookups.
+            i.e. for batch 1k and depth-8 tree, that's 8k random lookups
+            Say goodbye to any kind of branch prediction optimization.
+        So here's an alternative (recursive) formulation that reduces random lookups.
+        Note: It's currently way slower; it's just a proof of concept.
 ```
 
 ## Benchmarks
@@ -102,3 +125,8 @@ Observing the BERT benchmark performs slower than the vanilla BERT on HF
 - π created https://github.com/pbelcak/UltraFastBERT/issues/2  
 An interpretation of the core algorithm, and a suggestion for improvement (remove the .gelu)  
 Links to a gist demo of FFF operating over MNIST.
+
+
+# TODOS:
+
+- Implement [Speedup Tip from Bojan](https://discord.com/channels/1177617801561776158/1179177614754189432/1179777325391413321) somewhere.
