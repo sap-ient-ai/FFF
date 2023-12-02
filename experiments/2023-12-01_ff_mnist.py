@@ -57,22 +57,48 @@ testloader = list(testloader)
 class FFF_wrapper(nn.Module):
     def __init__(self, parent, size):
         super(FFF_wrapper, self).__init__()
-        self._parent = (parent,)
+        self.parent = parent
         self.size = size
         nn_size = parent.fc1.out_features
-        self.slice = torch.nn.Parameter(
-            torch.tensor(
-                sample(range(0, nn_size), k=size),
-                dtype=torch.int
-            ),
-            requires_grad=False
-        )
-        self.slice.cuda()
+        start_slice = sample(range(0, nn_size), k=size)
+        self.slice = start_slice
+        self.fc1 = nn.Linear(28*28, self.size).cuda()
+        self.fc2 = nn.Linear(self.size, 10).cuda()
+        
+        self.get_slice_from_parent()
+        self.mode = 'detached'
+        self.forward = self.forward_detached
+        # Attached mode lets us train with pytorch
+
+    def get_slice_from_parent(self):
+        fc1_bias, fc1_weight, fc2_weight, fc2_bias = self.parent.get_slice(self.slice)
+        
+        self.fc1.bias = fc1_bias
+        self.fc1.weight = fc1_weight
+        self.fc2.weight = fc2_weight
+        self.fc2.bias = fc2_bias
+
+    def switch_mode(self):
+        if self.mode == 'detached':
+            self.forward = self.forward_attached 
+            self.mode = 'attached'
+        else:
+            self.forward = self.forward_detached 
+            self.mode = 'detached'
+
+    def forward_detached(self, x):
+        return self.forward_from_slice(x, self.slice)
+    
+    def forward_attached(self, x):
+        x = x.view(-1, 28*28)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
         
 
-    def forward(self, x):
+    def forward_from_slice(self, x, slice):
         x = x.view(-1, 28*28)
-        fc1_bias, fc1_weight, fc2_weight, fc2_bias = self._parent[0].get_slice(self.slice)
+        fc1_bias, fc1_weight, fc2_weight, fc2_bias = self.parent.get_slice(slice)
         
         fc1 = nn.Linear(28*28, self.size).cuda()
         fc2 = nn.Linear(self.size, 10).cuda()
@@ -86,6 +112,7 @@ class FFF_wrapper(nn.Module):
         x = F.relu(fc1(x))
         x = fc2(x)
         return x
+
 
 
 
@@ -190,12 +217,62 @@ def evaluate(network):
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
     print(f'Accuracy of the network on the 10000 test images: {100 * correct // total} %')
+    return 100 * correct // total
 evaluate(FF_net)
 
 
-fff = FFF_wrapper(FF_net, 6)
+def calibrate(network, budget=100):
+    """ Only appliable to wrapper"""
+    dataset_x = torch.cat([x[0] for x in  trainloader])
+    dataset_y = torch.cat([x[1] for x in  trainloader])
 
-ex = trainloader[0][0][0]
+    def run_eval(slice):
+        outputs = network.forward_from_slice(dataset_x, slice)
+        _, predicted = torch.max(outputs.data, 1)
+
+        loss = criterion(outputs, dataset_y)
+        correct = (predicted == dataset_y).sum().item()
+        #return loss.item()
+        print(f'Slice {slice} Got correct: {correct}')
+        return -correct
+
+    parametrization = ng.p.Instrumentation(
+        slice = ng.p.Array(
+            shape=(network.size,)
+        ).set_bounds(
+            lower=0, upper=network.parent.size -1
+        ).set_integer_casting().set_mutation(sigma=16)
+    )
+    optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=budget)
+    #optimizer = ng.optimizers.SPSA(parametrization=parametrization, budget=budget)
+    recommendation = optimizer.minimize(run_eval)
+
+    print('Before calibration:')
+    print(f'Slices: {network.slice}')
+    evaluate(network)
+    print()
+
+    best_slices = recommendation.kwargs['slice']
+    print(f'Recommednation optimization found slices: {best_slices}')
+
+    network.slice = best_slices
+    print('After calibration:')
+    print(f'Slices: {network.slice}')
+    print()
+    evaluate(network)
+
+
+    return recommendation
+
+    #for data in trainloader:
+    #inputs, labels = data
+    #outputs = network(inputs)
+    #loss = criterion(outputs, labels)
+
+
+# Pick 6 neurons from the parent net
+fff = FFF_wrapper(FF_net, 2)
+calibrate(fff)
 
 if __name__ == '__main__':
     from IPython import embed
