@@ -9,7 +9,7 @@ We plan to engineer a performant implementation.
 
 Also as the innovation is new, we want to explore & tweak, rather than simply dive 100% into optimizations.
 
-Chat with us on [Discord](https://discord.gg/Utv7tcGz)
+Chat with us on [Discord](https://discord.gg/3sJxsn8NCh)
 
 NOTE: We're not affiliated with the authors of the FFF papers, but we'd be thrilled if they were to pop in and say hi!
 
