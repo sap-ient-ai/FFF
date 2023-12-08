@@ -1,3 +1,17 @@
+⭐️ Note (8 Dec 2023):
+
+We're currently shifting our focus beyond the scope of this innovation. So we're not actively working on it, although we may return to it and continue to make experiments etc.
+
+Our assessment so far:
+- FFF-esque techniques are going to be very effective for input data that exhibits clustering. This is due to the nature of the process -- repeated application of splitting hyperplanes.
+- Conversely we predict they won't work well on inputs that DON'T exhibit clustering.
+- So if you consider FF to be a generic neural tissue, FFF is a very specific tissue. You may run into trouble if you just randomly swap out FF with FFF with no consideration of the distribution of input data. Conversely you should expect big wins in certain situations.
+- It would be worth trying it out in various places, e.g. FF block of a Transformer.
+- From our experiments, `2023-12-03--fff-flat-structure.ipynb` was the most interesting to date. It represents a simplification and levels FF on MNIST and CIFAR (20 epochs).
+
+π 8 Dec 2023
+
+
 # Summary of FFF
 FFF shows promise to exponentially reduce the compute-power required by a feed-forward neural network layer, while retaining most of the neural-computer power.
 
